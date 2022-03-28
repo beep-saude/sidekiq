@@ -40,11 +40,6 @@ module Sidekiq
     reloader: proc { |&block| block.call }
   }
 
-  DEFAULT_WORKER_OPTIONS = {
-    "retry" => true,
-    "queue" => "default"
-  }
-
   FAKE_INFO = {
     "redis_version" => "9.9.9",
     "uptime_in_days" => "9999",
@@ -103,6 +98,7 @@ module Sidekiq
         # to disconnect and reopen the socket to get back to the primary.
         # 4495 Use the same logic if we have a "Not enough replicas" error from the primary
         # 4985 Use the same logic when a blocking command is force-unblocked
+        # The same retry logic is also used in client.rb
         if retryable && ex.message =~ /READONLY|NOREPLICAS|UNBLOCKED/
           conn.disconnect!
           retryable = false
@@ -157,13 +153,20 @@ module Sidekiq
     Middleware::Chain.new
   end
 
-  def self.default_worker_options=(hash)
-    # stringify
-    @default_worker_options = default_worker_options.merge(hash.transform_keys(&:to_s))
+  def self.default_worker_options=(hash) # deprecated
+    @default_job_options = default_job_options.merge(hash.transform_keys(&:to_s))
   end
 
-  def self.default_worker_options
-    defined?(@default_worker_options) ? @default_worker_options : DEFAULT_WORKER_OPTIONS
+  def self.default_job_options=(hash)
+    @default_job_options = default_job_options.merge(hash.transform_keys(&:to_s))
+  end
+
+  def self.default_worker_options # deprecated
+    @default_job_options ||= {"retry" => true, "queue" => "default"}
+  end
+
+  def self.default_job_options
+    @default_job_options ||= {"retry" => true, "queue" => "default"}
   end
 
   ##
@@ -201,12 +204,12 @@ module Sidekiq
   end
 
   def self.logger
-    @logger ||= Sidekiq::Logger.new($stdout, level: Logger::INFO)
+    @logger ||= Sidekiq::Logger.new($stdout, level: :info)
   end
 
   def self.logger=(logger)
     if logger.nil?
-      self.logger.level = Logger::FATAL
+      self.logger.fatal!
       return self.logger
     end
 
@@ -217,6 +220,10 @@ module Sidekiq
 
   def self.pro?
     defined?(Sidekiq::Pro)
+  end
+
+  def self.ent?
+    defined?(Sidekiq::Enterprise)
   end
 
   # How frequently Redis should be checked by a random Sidekiq process for
@@ -257,12 +264,12 @@ module Sidekiq
     options[:on_complex_arguments] = mode
   end
 
-  # We are shutting down Sidekiq but what about workers that
+  # We are shutting down Sidekiq but what about threads that
   # are working on some long job?  This error is
-  # raised in workers that have not finished within the hard
+  # raised in jobs that have not finished within the hard
   # timeout limit.  This is needed to rollback db transactions,
   # otherwise Ruby's Thread#kill will commit.  See #377.
-  # DO NOT RESCUE THIS ERROR IN YOUR WORKERS
+  # DO NOT RESCUE THIS ERROR IN YOUR JOBS
   class Shutdown < Interrupt; end
 end
 

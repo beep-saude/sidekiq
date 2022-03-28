@@ -2,6 +2,29 @@
 
 [Sidekiq Changes](https://github.com/mperham/sidekiq/blob/main/Changes.md) | [Sidekiq Pro Changes](https://github.com/mperham/sidekiq/blob/main/Pro-Changes.md) | [Sidekiq Enterprise Changes](https://github.com/mperham/sidekiq/blob/main/Ent-Changes.md)
 
+HEAD
+---------
+
+- Strict argument checking now runs after client-side middleware [#5246]
+- Fix page events with live polling [#5184]
+- Many under-the-hood changes to remove all usage of the term "worker"
+  from the Sidekiq codebase and APIs. This mostly involved RDoc and local
+  variable names but a few constants and public APIs were changed. The old
+  APIs will be removed in Sidekiq 7.0.
+```
+Sidekiq::DEFAULT_WORKER_OPTIONS -> Sidekiq.default_job_options
+Sidekiq.default_worker_options -> Sidekiq.default_job_options
+Sidekiq::Queues["default"].jobs_by_worker(HardJob) -> Sidekiq::Queues["default"].jobs_by_class(HardJob)
+```
+
+6.4.1
+---------
+
+- Fix pipeline/multi deprecations in redis-rb 4.6
+- Fix sidekiq.yml YAML load errors on Ruby 3.1 [#5141]
+- Sharding support for `perform_bulk` [#5129]
+- Refactor job logger for SPEEEEEEED
+
 6.4.0
 ---------
 
@@ -27,7 +50,6 @@ bin/rails generate sidekiq:job ProcessOrderJob
 ```
 - Fix job retries losing CurrentAttributes [#5090]
 - Tweak shutdown to give long-running threads time to cleanup [#5095]
-- Add keyword arguments support in extensions
 
 6.3.1
 ---------

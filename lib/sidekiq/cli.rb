@@ -20,7 +20,7 @@ module Sidekiq
     attr_accessor :launcher
     attr_accessor :environment
 
-    def parse(args = ARGV)
+    def parse(args = ARGV.dup)
       setup_options(args)
       initialize_logger
       validate!
@@ -115,8 +115,8 @@ module Sidekiq
       begin
         launcher.run
 
-        while (readable_io = IO.select([self_read]))
-          signal = readable_io.first[0].gets.strip
+        while self_read.wait_readable
+          signal = self_read.gets.strip
           handle_signal(signal)
         end
       rescue Interrupt
@@ -295,7 +295,7 @@ module Sidekiq
           (File.directory?(options[:require]) && !File.exist?("#{options[:require]}/config/application.rb"))
         logger.info "=================================================================="
         logger.info "  Please point Sidekiq to a Rails application or a Ruby file  "
-        logger.info "  to load your worker classes with -r [DIR|FILE]."
+        logger.info "  to load your job classes with -r [DIR|FILE]."
         logger.info "=================================================================="
         logger.info @parser
         die(1)
@@ -336,7 +336,7 @@ module Sidekiq
           parse_queue opts, queue, weight
         end
 
-        o.on "-r", "--require [PATH|DIR]", "Location of Rails application with workers or file to require" do |arg|
+        o.on "-r", "--require [PATH|DIR]", "Location of Rails application with jobs or file to require" do |arg|
           opts[:require] = arg
         end
 
@@ -382,7 +382,7 @@ module Sidekiq
     def parse_config(path)
       erb = ERB.new(File.read(path))
       erb.filename = File.expand_path(path)
-      opts = YAML.load(erb.result) || {}
+      opts = load_yaml(erb.result) || {}
 
       if opts.respond_to? :deep_symbolize_keys!
         opts.deep_symbolize_keys!
@@ -396,6 +396,14 @@ module Sidekiq
       parse_queues(opts, opts.delete(:queues) || [])
 
       opts
+    end
+
+    def load_yaml(src)
+      if Psych::VERSION > "4.0"
+        YAML.safe_load(src, permitted_classes: [Symbol], aliases: true)
+      else
+        YAML.load(src)
+      end
     end
 
     def parse_queues(opts, queues_and_weights)

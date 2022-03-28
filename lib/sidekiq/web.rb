@@ -147,10 +147,12 @@ module Sidekiq
       rules = [[:all, {"Cache-Control" => "public, max-age=86400"}]] unless ENV["SIDEKIQ_WEB_TESTING"]
 
       ::Rack::Builder.new do
+
         use Rack::Static, urls: ["/stylesheets/sidekiq", "/images/sidekiq", "/javascripts/sidekiq"],
-                          root: ASSETS,
-                          cascade: true,
-                          header_rules: rules
+          root: ASSETS,
+          cascade: true,
+          header_rules: rules
+
         m.each { |middleware, block| use(*middleware, &block) }
         use Sidekiq::Web::CsrfProtection unless $TESTING
         run WebApplication.new(klass)

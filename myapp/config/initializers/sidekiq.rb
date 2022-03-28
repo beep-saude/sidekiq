@@ -1,3 +1,4 @@
+Sidekiq.default_worker_options = { queue: "something" }
 Sidekiq.configure_client do |config|
   config.redis = { :size => 2 }
 end
@@ -42,5 +43,3 @@ end
 
 require "sidekiq/middleware/current_attributes"
 Sidekiq::CurrentAttributes.persist(Myapp::Current) # Your AS::CurrentAttributes singleton
-
-Post.delay.testing

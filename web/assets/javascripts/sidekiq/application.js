@@ -9,7 +9,9 @@ var ready = (callback) => {
   else document.addEventListener("DOMContentLoaded", callback);
 }
 
-ready(() => {
+ready(addListeners)
+
+function addListeners() {
   document.querySelectorAll(".check_all").forEach(node => {
     node.addEventListener("click", event => {
       node.closest('table').querySelectorAll('input[type=checkbox]').forEach(inp => { inp.checked = !!node.checked; });
@@ -26,15 +28,7 @@ ready(() => {
   })
 
   document.querySelectorAll("[data-toggle]").forEach(node => {
-    node.addEventListener("click", event => {
-      var targName = node.getAttribute("data-toggle");
-      var full = document.getElementById(targName + "_full");
-      if (full.style.display == "block") {
-        full.style.display = 'none';
-      } else {
-        full.style.display = 'block';
-      }
-    })
+    node.addEventListener("click", addDataToggleListeners)
   })
 
   updateFuzzyTimes();
@@ -42,26 +36,39 @@ ready(() => {
   var buttons = document.querySelectorAll(".live-poll");
   if (buttons.length > 0) {
     buttons.forEach(node => {
-      node.addEventListener("click", event => {
-        if (localStorage.sidekiqLivePoll == "enabled") {
-          localStorage.sidekiqLivePoll = "disabled";
-          clearTimeout(livePollTimer);
-          livePollTimer = null;
-        } else {
-          localStorage.sidekiqLivePoll = "enabled";
-          livePollCallback();
-        }
-
-        updateLivePollButton();
-      })
+      node.addEventListener("click", addPollingListeners)
     });
 
     updateLivePollButton();
-    if (localStorage.sidekiqLivePoll == "enabled") {
+    if (localStorage.sidekiqLivePoll == "enabled" && !livePollTimer) {
       scheduleLivePoll();
     }
   }
-})
+}
+
+function addPollingListeners(_event)  {
+  if (localStorage.sidekiqLivePoll == "enabled") {
+    localStorage.sidekiqLivePoll = "disabled";
+    clearTimeout(livePollTimer);
+    livePollTimer = null;
+  } else {
+    localStorage.sidekiqLivePoll = "enabled";
+    livePollCallback();
+  }
+
+  updateLivePollButton();
+}
+
+function addDataToggleListeners(event) {
+  var source = event.target || event.srcElement;
+  var targName = source.getAttribute("data-toggle");
+  var full = document.getElementById(targName + "_full");
+  if (full.style.display == "block") {
+    full.style.display = 'none';
+  } else {
+    full.style.display = 'block';
+  }
+}
 
 function updateFuzzyTimes() {
   var locale = document.body.getAttribute("data-locale");
@@ -89,7 +96,19 @@ function updateLivePollButton() {
 function livePollCallback() {
   clearTimeout(livePollTimer);
 
-  fetch(window.location.href).then(resp => resp.text()).then(replacePage).finally(scheduleLivePoll)
+  fetch(window.location.href)
+  .then(checkResponse)
+  .then(resp => resp.text())
+  .then(replacePage)
+  .catch(showError)
+  .finally(scheduleLivePoll)
+}
+
+function checkResponse(resp) {
+  if (!resp.ok) {
+    throw response.error();
+  }
+  return resp
 }
 
 function scheduleLivePoll() {
@@ -107,5 +126,9 @@ function replacePage(text) {
   var header_status = doc.querySelector('.status')
   document.querySelector('.status').replaceWith(header_status)
 
-  updateFuzzyTimes();
+  addListeners();
+}
+
+function showError(error) {
+  console.error(error)
 }

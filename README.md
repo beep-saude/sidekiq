@@ -36,7 +36,7 @@ Sidekiq 6.0 supports Rails 5.0+ but does not require it.
 Installation
 -----------------
 
-    gem install sidekiq
+    bundle add sidekiq
 
 
 Getting Started
@@ -79,6 +79,11 @@ Useful resources:
 
 Every Friday morning is Sidekiq happy hour: I video chat and answer questions.
 See the [Sidekiq support page](https://sidekiq.org/support.html) for details.
+
+Contributing
+-----------------
+
+Please see [the contributing guidelines](https://github.com/mperham/sidekiq/blob/main/.github/contributing.md).
 
 
 License
