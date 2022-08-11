@@ -5,55 +5,20 @@ require "redis"
 require "uri"
 
 module Sidekiq
-  class RedisConnection
-    class << self
-      def create(options = {})
-        symbolized_options = options.transform_keys(&:to_sym)
+  module RedisConnection
+    class RedisAdapter
+      BaseError = Redis::BaseError
+      CommandError = Redis::CommandError
 
-        if !symbolized_options[:url] && (u = determine_redis_provider)
-          symbolized_options[:url] = u
-        end
-
-        size = if symbolized_options[:size]
-          symbolized_options[:size]
-        elsif Sidekiq.server?
-          # Give ourselves plenty of connections.  pool is lazy
-          # so we won't create them until we need them.
-          Sidekiq.options[:concurrency] + 5
-        elsif ENV["RAILS_MAX_THREADS"]
-          Integer(ENV["RAILS_MAX_THREADS"])
-        else
-          5
-        end
-
-        verify_sizing(size, Sidekiq.options[:concurrency]) if Sidekiq.server?
-
-        pool_timeout = symbolized_options[:pool_timeout] || 1
-        log_info(symbolized_options)
-
-        ConnectionPool.new(timeout: pool_timeout, size: size) do
-          build_client(symbolized_options)
-        end
+      def initialize(options)
+        warn("Usage of the 'redis' gem within Sidekiq itself is deprecated, Sidekiq 7.0 will only use the new, simpler 'redis-client' gem", caller) if ENV["SIDEKIQ_REDIS_CLIENT"] == "1"
+        @options = options
       end
 
-      private
+      def new_client
+        namespace = @options[:namespace]
 
-      # Sidekiq needs many concurrent Redis connections.
-      #
-      # We need a connection for each Processor.
-      # We need a connection for Pro's real-time change listener
-      # We need a connection to various features to call Redis every few seconds:
-      #   - the process heartbeat.
-      #   - enterprise's leader election
-      #   - enterprise's cron support
-      def verify_sizing(size, concurrency)
-        raise ArgumentError, "Your Redis connection pool is too small for Sidekiq. Your pool has #{size} connections but must have at least #{concurrency + 2}" if size < (concurrency + 2)
-      end
-
-      def build_client(options)
-        namespace = options[:namespace]
-
-        client = Redis.new client_opts(options)
+        client = Redis.new client_opts(@options)
         if namespace
           begin
             require "redis/namespace"
@@ -67,6 +32,8 @@ module Sidekiq
           client
         end
       end
+
+      private
 
       def client_opts(options)
         opts = options.dup
@@ -90,6 +57,72 @@ module Sidekiq
 
         opts
       end
+    end
+
+    @adapter = RedisAdapter
+
+    class << self
+      attr_reader :adapter
+
+      # RedisConnection.adapter = :redis
+      # RedisConnection.adapter = :redis_client
+      def adapter=(adapter)
+        raise "no" if adapter == self
+        result = case adapter
+        when :redis
+          RedisAdapter
+        when Class
+          adapter
+        else
+          require "sidekiq/#{adapter}_adapter"
+          nil
+        end
+        @adapter = result if result
+      end
+
+      def create(options = {})
+        symbolized_options = options.transform_keys(&:to_sym)
+
+        if !symbolized_options[:url] && (u = determine_redis_provider)
+          symbolized_options[:url] = u
+        end
+
+        size = if symbolized_options[:size]
+          symbolized_options[:size]
+        elsif Sidekiq.server?
+          # Give ourselves plenty of connections.  pool is lazy
+          # so we won't create them until we need them.
+          Sidekiq[:concurrency] + 5
+        elsif ENV["RAILS_MAX_THREADS"]
+          Integer(ENV["RAILS_MAX_THREADS"])
+        else
+          5
+        end
+
+        verify_sizing(size, Sidekiq[:concurrency]) if Sidekiq.server?
+
+        pool_timeout = symbolized_options[:pool_timeout] || 1
+        log_info(symbolized_options)
+
+        redis_config = adapter.new(symbolized_options)
+        ConnectionPool.new(timeout: pool_timeout, size: size) do
+          redis_config.new_client
+        end
+      end
+
+      private
+
+      # Sidekiq needs many concurrent Redis connections.
+      #
+      # We need a connection for each Processor.
+      # We need a connection for Pro's real-time change listener
+      # We need a connection to various features to call Redis every few seconds:
+      #   - the process heartbeat.
+      #   - enterprise's leader election
+      #   - enterprise's cron support
+      def verify_sizing(size, concurrency)
+        raise ArgumentError, "Your Redis connection pool is too small for Sidekiq. Your pool has #{size} connections but must have at least #{concurrency + 2}" if size < (concurrency + 2)
+      end
 
       def log_info(options)
         redacted = "REDACTED"
@@ -110,9 +143,9 @@ module Sidekiq
           sentinel[:password] = redacted if sentinel[:password]
         end
         if Sidekiq.server?
-          Sidekiq.logger.info("Booting Sidekiq #{Sidekiq::VERSION} with redis options #{scrubbed_options}")
+          Sidekiq.logger.info("Booting Sidekiq #{Sidekiq::VERSION} with #{adapter.name} options #{scrubbed_options}")
         else
-          Sidekiq.logger.debug("#{Sidekiq::NAME} client with redis options #{scrubbed_options}")
+          Sidekiq.logger.debug("#{Sidekiq::NAME} client with #{adapter.name} options #{scrubbed_options}")
         end
       end
 

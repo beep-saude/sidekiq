@@ -1,8 +1,7 @@
 # frozen_string_literal: true
 
 require "sidekiq"
-require "sidekiq/util"
-require "sidekiq/api"
+require "sidekiq/component"
 
 module Sidekiq
   module Scheduled
@@ -52,8 +51,8 @@ module Sidekiq
           @lua_zpopbyscore_sha = raw_conn.script(:load, LUA_ZPOPBYSCORE)
         end
 
-        conn.evalsha(@lua_zpopbyscore_sha, keys: keys, argv: argv)
-      rescue Redis::CommandError => e
+        conn.evalsha(@lua_zpopbyscore_sha, keys, argv)
+      rescue RedisConnection.adapter::CommandError => e
         raise unless e.message.start_with?("NOSCRIPT")
 
         @lua_zpopbyscore_sha = nil
@@ -67,12 +66,13 @@ module Sidekiq
     # just pops the job back onto its original queue so the
     # workers can pick it up like any other job.
     class Poller
-      include Util
+      include Sidekiq::Component
 
       INITIAL_WAIT = 10
 
-      def initialize
-        @enq = (Sidekiq.options[:scheduled_enq] || Sidekiq::Scheduled::Enq).new
+      def initialize(options)
+        @config = options
+        @enq = (options[:scheduled_enq] || Sidekiq::Scheduled::Enq).new
         @sleeper = ConnectionPool::TimedStack.new
         @done = false
         @thread = nil
@@ -100,7 +100,7 @@ module Sidekiq
             enqueue
             wait
           end
-          Sidekiq.logger.info("Scheduler exiting...")
+          logger.info("Scheduler exiting...")
         }
       end
 
@@ -171,24 +171,19 @@ module Sidekiq
       #
       # We only do this if poll_interval_average is unset (the default).
       def poll_interval_average
-        Sidekiq.options[:poll_interval_average] ||= scaled_poll_interval
+        @config[:poll_interval_average] ||= scaled_poll_interval
       end
 
       # Calculates an average poll interval based on the number of known Sidekiq processes.
       # This minimizes a single point of failure by dispersing check-ins but without taxing
       # Redis if you run many Sidekiq processes.
       def scaled_poll_interval
-        process_count * Sidekiq.options[:average_scheduled_poll_interval]
+        process_count * @config[:average_scheduled_poll_interval]
       end
 
       def process_count
-        # The work buried within Sidekiq::ProcessSet#cleanup can be
-        # expensive at scale. Cut it down by 90% with this counter.
-        # NB: This method is only called by the scheduler thread so we
-        # don't need to worry about the thread safety of +=.
-        pcount = Sidekiq::ProcessSet.new(@count_calls % 10 == 0).size
+        pcount = Sidekiq.redis { |conn| conn.scard("processes") }
         pcount = 1 if pcount == 0
-        @count_calls += 1
         pcount
       end
 
@@ -197,7 +192,7 @@ module Sidekiq
         # to give time for the heartbeat to register (if the poll interval is going to be calculated by the number
         # of workers), and 5 random seconds to ensure they don't all hit Redis at the same time.
         total = 0
-        total += INITIAL_WAIT unless Sidekiq.options[:poll_interval_average]
+        total += INITIAL_WAIT unless @config[:poll_interval_average]
         total += (5 * rand)
 
         @sleeper.pop(total)

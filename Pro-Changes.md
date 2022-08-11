@@ -4,12 +4,34 @@
 
 Please see [sidekiq.org](https://sidekiq.org/) for more details and how to buy.
 
-HEAD
+5.5.2
 ---------
 
-- Excise "worker" from codebase [#4955]
+- Fix overly aggressive orphan check with large Sidekiq clusters [#5435]
+
+5.5.1
+---------
+
+- Unbreak queue pausing [#5382]
+
+5.5.0
+---------
+
+- DEPRECATION: remove support for statsd-ruby via `Sidekiq::Pro.statsd`.
+  dogstatsd-ruby will be the only supported statsd library in 6.0. [#5212]
+- Add `Sidekiq.via` API for targeting shards [#5269]
+```ruby
+SHARD1 = ConnectionPool.new { Redis.new(db: 0) }
+SHARD2 = ConnectionPool.new { Redis.new(db: 1) }
+Sidekiq.via(SHARD2) do
+  Sidekiq::Queue.all.sum(&:size)
+end
+```
+- Excise "worker" terminology from codebase [#4955]
 - Ensure batch callback metrics are always fired [#5217]
 - Added `error_type` tag for `job.failures` metrics [#5211]
+- Internal refactoring for Sidekiq 6.5.
+- Requires Sidekiq 6.5.
 
 5.3.1
 ---------
